@@ -73,7 +73,7 @@ def _check_ray_version(gcs_client):
     if cluster_metadata and cluster_metadata["ray_version"] != ray.__version__:
         raise RuntimeError(
             "Ray version mismatch: cluster has Ray version "
-            f'{cluster_metadata["ray_version"]} '
+            f"{cluster_metadata['ray_version']} "
             f"but local Ray version is {ray.__version__}"
         )
 
@@ -198,7 +198,7 @@ def continue_debug_session(live_jobs: Set[str]):
                             key, namespace=ray_constants.KV_NAMESPACE_PDB
                         )
                         return
-                    host, port = parse_address(session["pdb_address"])
+                    host, port = session["pdb_address"].rsplit(":", 1)
                     ray.util.rpdb._connect_pdb_client(host, int(port))
                     ray.experimental.internal_kv._internal_kv_del(
                         key, namespace=ray_constants.KV_NAMESPACE_PDB
@@ -1083,7 +1083,7 @@ def start(
                 cf.bold("--address"),
                 cf.bold(address),
             )
-            raise Exception("Cannot canonicalize address " f"`--address={address}`.")
+            raise Exception(f"Cannot canonicalize address `--address={address}`.")
 
         ray_params.gcs_address = bootstrap_address
 
@@ -1449,9 +1449,9 @@ def up(
             cf.bold("--restart-only"),
             cf.bold("--no-restart"),
         )
-        assert (
-            restart_only != no_restart
-        ), "Cannot set both 'restart_only' and 'no_restart' at the same time!"
+        assert restart_only != no_restart, (
+            "Cannot set both 'restart_only' and 'no_restart' at the same time!"
+        )
 
     if urllib.parse.urlparse(cluster_config_file).scheme in ("http", "https"):
         try:

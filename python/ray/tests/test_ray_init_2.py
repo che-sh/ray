@@ -9,8 +9,8 @@ from unittest.mock import patch
 import pytest
 
 import ray
+from ray._private import net
 import ray._private.services
-from ray._common.network_utils import parse_address
 from ray._common.test_utils import wait_for_condition
 from ray._private.ray_constants import DEFAULT_RESOURCES, RAY_OVERRIDE_DASHBOARD_URL
 from ray._private.services import get_node_ip_address
@@ -83,9 +83,10 @@ def test_ray_init_valid_keyword_with_client(shutdown_only):
 
 
 def test_env_var_override():
-    with unittest.mock.patch.dict(
-        os.environ, {"RAY_NAMESPACE": "envName"}
-    ), ray_start_client_server() as given_connection:
+    with (
+        unittest.mock.patch.dict(os.environ, {"RAY_NAMESPACE": "envName"}),
+        ray_start_client_server() as given_connection,
+    ):
         given_connection.disconnect()
 
         with ray.init("ray://localhost:50051"):
@@ -94,9 +95,10 @@ def test_env_var_override():
 
 def test_env_var_no_override():
     # init() argument has precedence over environment variables
-    with unittest.mock.patch.dict(
-        os.environ, {"RAY_NAMESPACE": "envName"}
-    ), ray_start_client_server() as given_connection:
+    with (
+        unittest.mock.patch.dict(os.environ, {"RAY_NAMESPACE": "envName"}),
+        ray_start_client_server() as given_connection,
+    ):
         given_connection.disconnect()
 
         with ray.init("ray://localhost:50051", namespace="argumentName"):
@@ -302,7 +304,7 @@ def test_ray_init_from_workers(ray_start_cluster):
     node2 = cluster.add_node(node_ip_address="127.0.0.3")
     address = cluster.address
     password = cluster.redis_password
-    assert parse_address(address)[0] == "127.0.0.2"
+    assert net._parse_ip_port(address)[0] == "127.0.0.2"
     assert node1.node_manager_port != node2.node_manager_port
     info = ray.init(address, _redis_password=password, _node_ip_address="127.0.0.3")
     assert info["node_ip_address"] == "127.0.0.3"

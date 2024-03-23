@@ -34,6 +34,7 @@ from ray._private.utils import (
     try_to_symlink,
     validate_socket_filepath,
 )
+from ray._private import net, storage
 from ray._raylet import GcsClient, get_session_key_from_storage
 
 import psutil
@@ -410,6 +411,8 @@ class Node:
         """Validates the address is in the ip:port format"""
         parts = parse_address(ip_port)
         if parts is None:
+        _, port = net._parse_ip_port(ip_port)
+        if port == ip_port:
             raise ValueError(f"Port is not specified for address {ip_port}")
         try:
             _ = int(parts[1])
@@ -881,8 +884,7 @@ class Node:
     def _get_unused_port(self, allocated_ports=None):
         if allocated_ports is None:
             allocated_ports = set()
-
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s = _get_sock_stream_from_host(self._localhost)
         s.bind(("", 0))
         port = s.getsockname()[1]
 
@@ -895,7 +897,7 @@ class Node:
                 # This port is allocated for other usage already,
                 # so we shouldn't use it even if it's not in use right now.
                 continue
-            new_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            new_s = _get_sock_stream_from_host(self._localhost)
             try:
                 new_s.bind(("", new_port))
             except OSError:

@@ -64,8 +64,9 @@ cdef class GcsClientOptions:
             c_cluster_id = CClusterID.FromHex(cluster_id_hex)
         self = GcsClientOptions()
         try:
-            ip, port_str = parse_address(gcs_address)
-            port = int(port_str)
+            // TODO: use ray._private.net._parse_ip_port(gcs_address); I'm not familiar with pxi
+            ip, port = gcs_address.rsplit(":", 1)
+            port = int(port)
             self.inner.reset(
                 new CGcsClientOptions(
                     ip, port, c_cluster_id, allow_cluster_id_nil, allow_cluster_id_nil))

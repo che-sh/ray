@@ -10,14 +10,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
+from ray._private.state_api_test_utils import get_state_api_manager
+from ray.util.state import get_job
+from ray.dashboard.modules.job.pydantic_models import JobDetails
+from ray.util.state.common import Humanify
+from ray._private import net
+from ray._private.gcs_utils import GcsAioClient
 import yaml
 from click.testing import CliRunner
 
 import ray
 import ray._private.ray_constants as ray_constants
 import ray._private.state as global_state
-import ray.dashboard.consts as dashboard_consts
-from ray._common.network_utils import parse_address
+import ray.dashboard.consts as dashboard_constsparse_address
 from ray._common.test_utils import (
     SignalActor,
     async_wait_for_condition,
@@ -358,7 +363,7 @@ def test_list_api_options_has_conflicting_filters():
 
 def test_ray_address_to_api_server_url(shutdown_only):
     ctx = ray.init()
-    api_server_url = f'http://{ctx.address_info["webui_url"]}'
+    api_server_url = f"http://{ctx.address_info['webui_url']}"
     address = ctx.address_info["address"]
     gcs_address = ctx.address_info["gcs_address"]
 
@@ -371,7 +376,7 @@ def test_ray_address_to_api_server_url(shutdown_only):
     # explicit head node gcs address
     assert api_server_url == ray_address_to_api_server_url(gcs_address)
     # localhost string
-    _, gcs_port = parse_address(gcs_address)
+    gcs_port = net._parse_ip_port(gcs_address)[1]
     assert api_server_url == ray_address_to_api_server_url(f"localhost:{gcs_port}")
 
 
@@ -2696,9 +2701,9 @@ def test_parent_task_id(shutdown_only):
             elif task["func_or_class_name"] == "child":
                 child_parent_task_id = task["parent_task_id"]
 
-        assert (
-            parent_task_id == child_parent_task_id
-        ), "Child should have the parent task id"
+        assert parent_task_id == child_parent_task_id, (
+            "Child should have the parent task id"
+        )
         return True
 
     wait_for_condition(verify)
@@ -2729,9 +2734,9 @@ def test_list_get_task_multiple_attempt_all_failed(shutdown_only):
             2,
         }, "Attempt number should be 0,1,2"
 
-        assert (
-            len({task_attempt["task_id"] for task_attempt in task_attempts}) == 1
-        ), "Same task id"
+        assert len({task_attempt["task_id"] for task_attempt in task_attempts}) == 1, (
+            "Same task id"
+        )
         return True
 
     wait_for_condition(lambda: verify(list_tasks()))
@@ -3427,9 +3432,9 @@ def test_state_api_rate_limit_with_failure(monkeypatch, shutdown_only):
         with pytest.raises(RayStateApiException) as e:
             print(list_objects())
         # TODO(rickyyx): We will use fine-grained exceptions/error code soon
-        assert "Max" in str(
-            e
-        ), f"Expect an exception raised due to rate limit, but have {str(e)}"
+        assert "Max" in str(e), (
+            f"Expect an exception raised due to rate limit, but have {str(e)}"
+        )
 
         # Consecutive APIs should be successful after the previous delay ones timeout
         def verify():
@@ -3530,9 +3535,9 @@ def test_state_api_server_enforce_concurrent_http_requests(
                     assert False, "Failed to get some results from a subprocess"
 
             # We should run into max in-progress requests errors
-            assert (
-                max_concurrent_reqs_error == num_procs - max_requests
-            ), f"{num_procs - max_requests} requests should be rate limited"
+            assert max_concurrent_reqs_error == num_procs - max_requests, (
+                f"{num_procs - max_requests} requests should be rate limited"
+            )
             [p.join(5) for p in procs]
             for proc in procs:
                 assert not proc.is_alive(), "All threads should exit"

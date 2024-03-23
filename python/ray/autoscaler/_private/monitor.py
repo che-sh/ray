@@ -160,7 +160,7 @@ class Monitor:
         self._session_name = self.get_session_name(self.gcs_client)
         logger.info(f"session_name: {self._session_name}")
         worker.mode = 0
-        head_node_ip = parse_address(self.gcs_address)[0]
+        head_node_ip = self.gcs_address.rsplit(":", 1)[0]
 
         self.load_metrics = LoadMetrics()
         self.last_avail_resources = None
@@ -424,9 +424,7 @@ class Monitor:
 
                     if autoscaler_summary:
                         status["autoscaler_report"] = asdict(autoscaler_summary)
-                        status[
-                            "non_terminated_nodes_time"
-                        ] = (
+                        status["non_terminated_nodes_time"] = (
                             self.autoscaler.non_terminated_nodes.non_terminated_nodes_time  # noqa: E501
                         )
 

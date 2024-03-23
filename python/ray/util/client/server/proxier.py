@@ -19,6 +19,7 @@ import ray.core.generated.ray_client_pb2 as ray_client_pb2
 import ray.core.generated.ray_client_pb2_grpc as ray_client_pb2_grpc
 import ray.core.generated.runtime_env_agent_pb2 as runtime_env_agent_pb2
 from ray._common.network_utils import build_address, is_localhost
+from ray._private import net
 from ray._private.client_mode_hook import disable_client_hook
 from ray._private.parameter import RayParams
 from ray._private.runtime_env.context import RuntimeEnvContext
@@ -144,7 +145,7 @@ class ProxyManager:
             num_ports = len(self._free_ports)
             for _ in range(num_ports):
                 port = self._free_ports.pop(0)
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s = net._get_socket_dualstack_fallback_single_stack_laddr()
                 try:
                     s.bind(("", port))
                 except OSError:
@@ -194,15 +195,18 @@ class ProxyManager:
         method must be called once per client.
         """
         with self.server_lock:
-            assert (
-                self.servers.get(client_id) is None
-            ), f"Server already created for Client: {client_id}"
+            assert self.servers.get(client_id) is None, (
+                f"Server already created for Client: {client_id}"
+            )
             port = self._get_unused_port()
+            local_ip = net._get_addrinfo_from_sock_kind_ipv4_fallback_ipv6(
+                "localhost", socket.SOCK_STREAM
+            )
             server = SpecificServer(
                 port=port,
                 process_handle_future=futures.Future(),
                 channel=ray._private.utils.init_grpc_channel(
-                    build_address("127.0.0.1", port), options=GRPC_OPTIONS
+                    f"{local_ip}:{port}", options=GRPC_OPTIONS
                 ),
             )
             self.servers[client_id] = server
@@ -225,9 +229,9 @@ class ProxyManager:
             f"Serialized runtime env is {serialized_runtime_env}."
         )
 
-        assert (
-            len(self._runtime_env_agent_address) > 0
-        ), "runtime_env_agent_address not set"
+        assert len(self._runtime_env_agent_address) > 0, (
+            "runtime_env_agent_address not set"
+        )
 
         create_env_request = runtime_env_agent_pb2.GetOrCreateRuntimeEnvRequest(
             serialized_runtime_env=serialized_runtime_env,
@@ -270,7 +274,7 @@ class ProxyManager:
                 logger.warning(
                     f"GetOrCreateRuntimeEnv request failed: {e}. "
                     f"Retrying after {wait_time_s}s. "
-                    f"{max_retries-retries} retries remaining."
+                    f"{max_retries - retries} retries remaining."
                 )
 
             # Exponential backoff.
@@ -549,7 +553,6 @@ class RayletServicerProxy(ray_client_pb2_grpc.RayletDriverServicer):
         return self._call_inner_function(request, context, "ListNamedActors")
 
     def ClusterInfo(self, request, context=None) -> ray_client_pb2.ClusterInfoResponse:
-
         # NOTE: We need to respond to the PING request here to allow the client
         # to continue with connecting.
         if request.type == ray_client_pb2.ClusterInfoType.PING:
@@ -593,7 +596,7 @@ def prepare_runtime_init_req(
     """
     init_type = init_request.WhichOneof("type")
     assert init_type == "init", (
-        "Received initial message of type " f"{init_type}, not 'init'."
+        f"Received initial message of type {init_type}, not 'init'."
     )
     req = init_request.init
     job_config = JobConfig()
@@ -697,9 +700,9 @@ class DataServicerProxy(ray_client_pb2_grpc.RayletDataStreamerServicer):
                 logger.info(f"New data connection from client {client_id}: ")
                 init_req = next(request_iterator)
                 with self.clients_lock:
-                    self.reconnect_grace_periods[
-                        client_id
-                    ] = init_req.init.reconnect_grace_period
+                    self.reconnect_grace_periods[client_id] = (
+                        init_req.init.reconnect_grace_period
+                    )
                 try:
                     modified_init_req, job_config = prepare_runtime_init_req(init_req)
                     if not self.proxy_manager.start_specific_server(
@@ -802,7 +805,7 @@ class LogstreamServicerProxy(ray_client_pb2_grpc.RayletLogStreamerServicer):
 
             if channel is not None:
                 break
-            logger.warning(f"Retrying Logstream connection. {i+1} attempts failed.")
+            logger.warning(f"Retrying Logstream connection. {i + 1} attempts failed.")
             time.sleep(LOGSTREAM_RETRY_INTERVAL_SEC)
 
         if channel is None:

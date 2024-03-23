@@ -221,6 +221,7 @@ from ray.exceptions import (
     RayChannelTimeoutError,
 )
 from ray._private import external_storage
+from ray._private import net
 from ray.util.scheduling_strategies import (
     PlacementGroupSchedulingStrategy,
     NodeAffinitySchedulingStrategy,
@@ -2897,7 +2898,623 @@ cdef class GcsClient:
         if "TEST_RAY_COLLECT_KV_FREQUENCY" in os.environ:
             with ray._private.utils._CALLED_FREQ_LOCK:
                 ray._private.utils._CALLED_FREQ[name] += 1
-        return getattr(self.inner, name)
+        
+        remaining_retry = self._nums_reconnect_retry
+        while True:
+            try:
+                return f(self, *args, **kwargs)
+            except RpcError as e:
+                import grpc
+                if e.rpc_code in [
+                    grpc.StatusCode.UNAVAILABLE.value[0],
+                    grpc.StatusCode.UNKNOWN.value[0],
+                ]:
+                    if remaining_retry <= 0:
+                        logger.error(
+                            "Failed to connect to GCS. Please check"
+                            " `gcs_server.out` for more details."
+                        )
+                        raise
+                    logger.debug(
+                        f"Failed to send request to gcs, reconnecting. Error {e}"
+                    )
+                    try:
+                        self._connect()
+                    except Exception:
+                        logger.error(f"Connecting to gcs failed. Error {e}")
+                    time.sleep(1)
+                    remaining_retry -= 1
+                    continue
+                raise
+
+    return wrapper
+
+
+cdef class GcsClient:
+    """Cython wrapper class of C++ `ray::gcs::GcsClient`."""
+    cdef:
+        shared_ptr[CPythonGcsClient] inner
+        object address
+        object _nums_reconnect_retry
+        CClusterID cluster_id
+
+    def __cinit__(self, address,
+                  nums_reconnect_retry=RayConfig.instance().nums_py_gcs_reconnect_retry(
+                  ),
+                  cluster_id=None):
+        cdef GcsClientOptions gcs_options = GcsClientOptions.from_gcs_address(address)
+        self.inner.reset(new CPythonGcsClient(dereference(gcs_options.native())))
+        self.address = address
+        self._nums_reconnect_retry = nums_reconnect_retry
+        cdef c_string c_cluster_id
+        if cluster_id is None:
+            self.cluster_id = CClusterID.Nil()
+        else:
+            c_cluster_id = cluster_id
+            self.cluster_id = CClusterID.FromHex(c_cluster_id)
+        self._connect(RayConfig.instance().py_gcs_connect_timeout_s())
+
+    def _connect(self, timeout_s=None):
+        cdef:
+            int64_t timeout_ms = round(1000 * timeout_s) if timeout_s else -1
+            size_t num_retries = self._nums_reconnect_retry
+        with nogil:
+            status = self.inner.get().Connect(self.cluster_id, timeout_ms, num_retries)
+
+        check_status(status)
+        if self.cluster_id.IsNil():
+            self.cluster_id = self.inner.get().GetClusterId()
+            assert not self.cluster_id.IsNil()
+
+    def get_cluster_id(self):
+        return self.cluster_id.Hex().decode()
+
+    @property
+    def address(self):
+        return self.address
+
+    @property
+    def _nums_reconnect_retry(self):
+        return self._nums_reconnect_retry
+
+    @_auto_reconnect
+    def check_alive(
+        self, node_ips: c_vector[c_string], timeout: Optional[float] = None
+    ):
+        cdef:
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+            c_vector[c_bool] c_result
+        with nogil:
+            check_status(self.inner.get().CheckAlive(node_ips, timeout_ms, c_result))
+        result = []
+        for r in c_result:
+            result.append(r)
+        return result
+
+    @_auto_reconnect
+    def internal_kv_get(self, c_string key, namespace=None, timeout=None):
+        cdef:
+            c_string ns = namespace or b""
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+            c_string value
+            CRayStatus status
+        with nogil:
+            status = self.inner.get().InternalKVGet(ns, key, timeout_ms, value)
+        if status.IsKeyError():
+            return None
+        else:
+            check_status(status)
+            return value
+
+    @_auto_reconnect
+    def internal_kv_multi_get(self, keys, namespace=None, timeout=None):
+        cdef:
+            c_string ns = namespace or b""
+            c_vector[c_string] c_keys
+            c_string c_key
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+            unordered_map[c_string, c_string] c_result
+            unordered_map[c_string, c_string].iterator it
+
+        for c_key in keys:
+            c_keys.push_back(c_key)
+        with nogil:
+            check_status(self.inner.get().InternalKVMultiGet(
+                ns, c_keys, timeout_ms, c_result))
+
+        result = {}
+        it = c_result.begin()
+        while it != c_result.end():
+            key = dereference(it).first
+            value = dereference(it).second
+            result[key] = value
+            postincrement(it)
+        return result
+
+    @_auto_reconnect
+    def internal_kv_put(self, c_string key, c_string value, c_bool overwrite=False,
+                        namespace=None, timeout=None):
+        cdef:
+            c_string ns = namespace or b""
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+            int num_added = 0
+        with nogil:
+            check_status(self.inner.get().InternalKVPut(
+                ns, key, value, overwrite, timeout_ms, num_added))
+
+        return num_added
+
+    @_auto_reconnect
+    def internal_kv_del(self, c_string key, c_bool del_by_prefix,
+                        namespace=None, timeout=None):
+        cdef:
+            c_string ns = namespace or b""
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+            int num_deleted = 0
+        with nogil:
+            check_status(self.inner.get().InternalKVDel(
+                ns, key, del_by_prefix, timeout_ms, num_deleted))
+
+        return num_deleted
+
+    @_auto_reconnect
+    def internal_kv_keys(self, c_string prefix, namespace=None, timeout=None):
+        cdef:
+            c_string ns = namespace or b""
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+            c_vector[c_string] keys
+            c_string key
+
+        with nogil:
+            check_status(self.inner.get().InternalKVKeys(
+                ns, prefix, timeout_ms, keys))
+
+        result = []
+
+        for key in keys:
+            result.append(key)
+
+        return result
+
+    @_auto_reconnect
+    def internal_kv_exists(self, c_string key, namespace=None, timeout=None):
+        cdef:
+            c_string ns = namespace or b""
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+            c_bool exists = False
+        with nogil:
+            check_status(self.inner.get().InternalKVExists(
+                ns, key, timeout_ms, exists))
+        return exists
+
+    @_auto_reconnect
+    def pin_runtime_env_uri(self, str uri, int expiration_s, timeout=None):
+        cdef:
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+            c_string c_uri = uri.encode()
+        with nogil:
+            check_status(self.inner.get().PinRuntimeEnvUri(
+                c_uri, expiration_s, timeout_ms))
+
+    @_auto_reconnect
+    def get_all_node_info(self, timeout=None):
+        cdef:
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+            CGcsNodeInfo node_info
+            c_vector[CGcsNodeInfo] node_infos
+        with nogil:
+            check_status(self.inner.get().GetAllNodeInfo(timeout_ms, node_infos))
+
+        result = {}
+        for node_info in node_infos:
+            c_resources = PythonGetResourcesTotal(node_info)
+            result[node_info.node_id()] = {
+                "node_name": node_info.node_name(),
+                "state": node_info.state(),
+                "labels": PythonGetNodeLabels(node_info),
+                "resources": {key.decode(): value for key, value in c_resources}
+            }
+        return result
+
+    @_auto_reconnect
+    def get_all_job_info(self, timeout=None) -> Dict[str, JobTableData]:
+        # Ideally we should use json_format.MessageToDict(job_info),
+        # but `job_info` is a cpp pb message not a python one.
+        # Manually converting each and every protobuf field is out of question,
+        # so we serialize the pb to string to cross the FFI interface.
+        cdef:
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+            CJobTableData c_job_info
+            c_vector[CJobTableData] c_job_infos
+            c_vector[c_string] serialized_job_infos
+        with nogil:
+            check_status(self.inner.get().GetAllJobInfo(timeout_ms, c_job_infos))
+            for c_job_info in c_job_infos:
+                serialized_job_infos.push_back(c_job_info.SerializeAsString())
+        result = {}
+        for serialized in serialized_job_infos:
+            job_info = JobTableData()
+            job_info.ParseFromString(serialized)
+            result[job_info.job_id] = job_info
+        return result
+
+    @_auto_reconnect
+    def get_all_resource_usage(self, timeout=None) -> GetAllResourceUsageReply:
+        cdef:
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+            c_string serialized_reply
+
+        with nogil:
+            check_status(self.inner.get().GetAllResourceUsage(
+                timeout_ms, serialized_reply))
+
+        reply = GetAllResourceUsageReply()
+        reply.ParseFromString(serialized_reply)
+        return reply
+    ########################################################
+    # Interface for rpc::autoscaler::AutoscalerStateService
+    ########################################################
+
+    @_auto_reconnect
+    def request_cluster_resource_constraint(
+            self,
+            bundles: c_vector[unordered_map[c_string, double]],
+            count_array: c_vector[int64_t],
+            timeout_s=None):
+        cdef:
+            int64_t timeout_ms = round(1000 * timeout_s) if timeout_s else -1
+        with nogil:
+            check_status(self.inner.get().RequestClusterResourceConstraint(
+                timeout_ms, bundles, count_array))
+
+    @_auto_reconnect
+    def get_cluster_resource_state(
+            self,
+            timeout_s=None):
+        cdef:
+            int64_t timeout_ms = round(1000 * timeout_s) if timeout_s else -1
+            c_string serialized_reply
+        with nogil:
+            check_status(self.inner.get().GetClusterResourceState(timeout_ms,
+                         serialized_reply))
+
+        return serialized_reply
+
+    @_auto_reconnect
+    def get_cluster_status(
+            self,
+            timeout_s=None):
+        cdef:
+            int64_t timeout_ms = round(1000 * timeout_s) if timeout_s else -1
+            c_string serialized_reply
+        with nogil:
+            check_status(self.inner.get().GetClusterStatus(timeout_ms,
+                         serialized_reply))
+
+        return serialized_reply
+
+    @_auto_reconnect
+    def report_autoscaling_state(
+        self,
+        serialzied_state: c_string,
+        timeout_s=None
+    ):
+        """Report autoscaling state to GCS"""
+        cdef:
+            int64_t timeout_ms = round(1000 * timeout_s) if timeout_s else -1
+        with nogil:
+            check_status(self.inner.get().ReportAutoscalingState(
+                timeout_ms, serialzied_state))
+
+    @_auto_reconnect
+    def drain_node(
+            self,
+            node_id: c_string,
+            reason: int32_t,
+            reason_message: c_string,
+            deadline_timestamp_ms: int64_t):
+        """Send the DrainNode request to GCS.
+
+        This is only for testing.
+        """
+        cdef:
+            int64_t timeout_ms = -1
+            c_bool is_accepted = False
+            c_string rejection_reason_message
+        with nogil:
+            check_status(self.inner.get().DrainNode(
+                node_id, reason, reason_message,
+                deadline_timestamp_ms, timeout_ms, is_accepted,
+                rejection_reason_message))
+
+        return (is_accepted, rejection_reason_message.decode())
+
+    @_auto_reconnect
+    def drain_nodes(self, node_ids, timeout=None):
+        cdef:
+            c_vector[c_string] c_node_ids
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+            c_vector[c_string] c_drained_node_ids
+        for node_id in node_ids:
+            c_node_ids.push_back(node_id)
+        with nogil:
+            check_status(self.inner.get().DrainNodes(
+                c_node_ids, timeout_ms, c_drained_node_ids))
+        result = []
+        for drain_node_id in c_drained_node_ids:
+            result.append(drain_node_id)
+        return result
+
+    #############################################################
+    # Interface for rpc::autoscaler::AutoscalerStateService ends
+    #############################################################
+cdef class GcsPublisher:
+    """Cython wrapper class of C++ `ray::gcs::PythonGcsPublisher`."""
+    cdef:
+        shared_ptr[CPythonGcsPublisher] inner
+
+    def __cinit__(self, address):
+        self.inner.reset(new CPythonGcsPublisher(address))
+        check_status(self.inner.get().Connect())
+
+    def publish_error(self, key_id: bytes, error_type: str, message: str,
+                      job_id=None, num_retries=None):
+        cdef:
+            CErrorTableData error_info
+            int64_t c_num_retries = num_retries if num_retries else -1
+            c_string c_key_id = key_id
+
+        if job_id is None:
+            job_id = ray.JobID.nil()
+        assert isinstance(job_id, ray.JobID)
+        error_info.set_job_id(job_id.binary())
+        error_info.set_type(error_type)
+        error_info.set_error_message(message)
+        error_info.set_timestamp(time.time())
+
+        with nogil:
+            check_status(
+                self.inner.get().PublishError(c_key_id, error_info, c_num_retries))
+
+    def publish_logs(self, log_json: dict):
+        cdef:
+            CLogBatch log_batch
+            c_string c_job_id
+
+        job_id = log_json.get("job")
+        log_batch.set_ip(log_json.get("ip") if log_json.get("ip") else b"")
+        log_batch.set_pid(
+            str(log_json.get("pid")).encode() if log_json.get("pid") else b"")
+        log_batch.set_job_id(job_id.encode() if job_id else b"")
+        log_batch.set_is_error(bool(log_json.get("is_err")))
+        for line in log_json.get("lines", []):
+            log_batch.add_lines(line)
+        actor_name = log_json.get("actor_name")
+        log_batch.set_actor_name(actor_name.encode() if actor_name else b"")
+        task_name = log_json.get("task_name")
+        log_batch.set_task_name(task_name.encode() if task_name else b"")
+
+        c_job_id = job_id.encode() if job_id else b""
+        with nogil:
+            check_status(self.inner.get().PublishLogs(c_job_id, log_batch))
+
+
+cdef class _GcsSubscriber:
+    """Cython wrapper class of C++ `ray::gcs::PythonGcsSubscriber`."""
+    cdef:
+        shared_ptr[CPythonGcsSubscriber] inner
+
+    def _construct(self, address, channel, worker_id):
+        cdef:
+            c_worker_id = worker_id or b""
+        # subscriber_id needs to match the binary format of a random
+        # SubscriberID / UniqueID, which is 28 (kUniqueIDSize) random bytes.
+        subscriber_id = bytes(bytearray(random.getrandbits(8) for _ in range(28)))
+        gcs_address, gcs_port = net._parse_ip_port(address)
+        self.inner.reset(new CPythonGcsSubscriber(
+            gcs_address, int(gcs_port), channel, subscriber_id, c_worker_id))
+
+    def subscribe(self):
+        """Registers a subscription for the subscriber's channel type.
+
+        Before the registration, published messages in the channel will not be
+        saved for the subscriber.
+        """
+        with nogil:
+            check_status(self.inner.get().Subscribe())
+
+    @property
+    def last_batch_size(self):
+        """Batch size of the result from last poll.
+
+        Used to indicate whether the subscriber can keep up.
+        """
+        return self.inner.get().last_batch_size()
+
+    def close(self):
+        """Closes the subscriber and its active subscription."""
+        with nogil:
+            check_status(self.inner.get().Close())
+
+
+cdef class GcsErrorSubscriber(_GcsSubscriber):
+    """Subscriber to error info. Thread safe.
+
+    Usage example:
+        subscriber = GcsErrorSubscriber()
+        # Subscribe to the error channel.
+        subscriber.subscribe()
+        ...
+        while running:
+            error_id, error_data = subscriber.poll()
+            ......
+        # Unsubscribe from the error channels.
+        subscriber.close()
+    """
+
+    def __init__(self, address, worker_id=None):
+        self._construct(address, RAY_ERROR_INFO_CHANNEL, worker_id)
+
+    def poll(self, timeout=None):
+        """Polls for new error messages.
+
+        Returns:
+            A tuple of error message ID and dict describing the error,
+            or None, None if polling times out or subscriber closed.
+        """
+        cdef:
+            CErrorTableData error_data
+            c_string key_id
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+
+        with nogil:
+            check_status(self.inner.get().PollError(&key_id, timeout_ms, &error_data))
+
+        if key_id == b"":
+            return None, None
+
+        return (bytes(key_id), {
+            "job_id": error_data.job_id(),
+            "type": error_data.type().decode(),
+            "error_message": error_data.error_message().decode(),
+            "timestamp": error_data.timestamp(),
+        })
+
+
+cdef class GcsLogSubscriber(_GcsSubscriber):
+    """Subscriber to logs. Thread safe.
+
+    Usage example:
+        subscriber = GcsLogSubscriber()
+        # Subscribe to the log channel.
+        subscriber.subscribe()
+        ...
+        while running:
+            log = subscriber.poll()
+            ......
+        # Unsubscribe from the log channel.
+        subscriber.close()
+    """
+
+    def __init__(self, address, worker_id=None):
+        self._construct(address, RAY_LOG_CHANNEL, worker_id)
+
+    def poll(self, timeout=None):
+        """Polls for new log messages.
+
+        Returns:
+            A dict containing a batch of log lines and their metadata.
+        """
+        cdef:
+            CLogBatch log_batch
+            c_string key_id
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+            c_vector[c_string] c_log_lines
+            c_string c_log_line
+
+        with nogil:
+            check_status(self.inner.get().PollLogs(&key_id, timeout_ms, &log_batch))
+
+        c_log_lines = PythonGetLogBatchLines(log_batch)
+
+        log_lines = []
+        for c_log_line in c_log_lines:
+            log_lines.append(c_log_line.decode())
+
+        return {
+            "ip": log_batch.ip().decode(),
+            "pid": log_batch.pid().decode(),
+            "job": log_batch.job_id().decode(),
+            "is_err": log_batch.is_error(),
+            "lines": log_lines,
+            "actor_name": log_batch.actor_name().decode(),
+            "task_name": log_batch.task_name().decode(),
+        }
+
+
+# This class should only be used for tests
+cdef class _TestOnly_GcsActorSubscriber(_GcsSubscriber):
+    """Subscriber to actor updates. Thread safe.
+
+    Usage example:
+        subscriber = GcsActorSubscriber()
+        # Subscribe to the actor channel.
+        subscriber.subscribe()
+        ...
+        while running:
+            actor_data = subscriber.poll()
+            ......
+        # Unsubscribe from the channel.
+        subscriber.close()
+    """
+
+    def __init__(self, address, worker_id=None):
+        self._construct(address, GCS_ACTOR_CHANNEL, worker_id)
+
+    def poll(self, timeout=None):
+        """Polls for new actor messages.
+
+        Returns:
+            A byte string of function key.
+            None if polling times out or subscriber closed.
+        """
+        cdef:
+            CActorTableData actor_data
+            c_string key_id
+            int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+
+        with nogil:
+            check_status(self.inner.get().PollActor(
+                &key_id, timeout_ms, &actor_data))
+
+        from ray.core.generated import gcs_pb2
+
+        info = gcs_pb2.ActorTableData.FromString(
+            actor_data.SerializeAsString())
+
+        return [(key_id, info)]
+
+
+def check_health(address: str, timeout=2, skip_version_check=False):
+    """Checks Ray cluster health, before / without actually connecting to the
+    cluster via ray.init().
+
+    Args:
+        address: Ray cluster / GCS address string, e.g. ip:port.
+        timeout: request timeout.
+        skip_version_check: If True, will skip comparision of GCS Ray version with local
+            Ray version. If False (default), will raise exception on mismatch.
+    Returns:
+        Returns True if the cluster is running and has matching Ray version.
+        Returns False if no service is running.
+        Raises an exception otherwise.
+    """
+
+    tokens = net._parse_ip_port(address)
+    if len(tokens) != 2:
+        raise ValueError("Invalid address: {}. Expect 'ip:port'".format(address))
+    gcs_address, gcs_port = tokens
+
+    cdef:
+        c_string c_gcs_address = gcs_address
+        int c_gcs_port = int(gcs_port)
+        int64_t timeout_ms = round(1000 * timeout) if timeout else -1
+        c_string c_ray_version = ray.__version__
+        c_bool c_skip_version_check = skip_version_check
+        c_bool c_is_healthy = True
+
+    try:
+        with nogil:
+            check_status(PythonCheckGcsHealth(
+                c_gcs_address, c_gcs_port, timeout_ms, c_ray_version,
+                c_skip_version_check, c_is_healthy))
+    except RpcError:
+        traceback.print_exc()
+    except RaySystemError as e:
+        raise RuntimeError(str(e))
+
+    return c_is_healthy
+
 
 cdef class CoreWorker:
 

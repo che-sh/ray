@@ -9,6 +9,8 @@ import pytest
 import redis
 
 import ray
+from ray._private import net
+from ray._raylet import GcsClient
 import ray._private.gcs_utils as gcs_utils
 import ray._private.ray_constants as ray_constants
 from ray._common.network_utils import parse_address
@@ -302,7 +304,7 @@ def test_redis_cleanup(redis_replicas, shutdown_only):
     gcs_client.internal_kv_put(b"ABC", b"XYZ", True, None)
     ray.shutdown()
     redis_addr = os.environ["RAY_REDIS_ADDRESS"]
-    host, port = parse_address(redis_addr)
+    host, port = net._parse_ip_port(redis_addr)
     if os.environ.get("TEST_EXTERNAL_REDIS_REPLICAS", "1") != "1":
         cli = redis.RedisCluster(host, int(port))
     else:

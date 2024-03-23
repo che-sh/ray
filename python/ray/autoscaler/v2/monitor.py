@@ -87,7 +87,8 @@ class AutoscalerMonitor:
         self._session_name = self._get_session_name(self.gcs_client)
         logger.info(f"session_name: {self._session_name}")
         worker.set_mode(SCRIPT_MODE)
-        head_node_ip = parse_address(self.gcs_address)[0]
+        # head_node_ip = parse_address(self.gcs_address)[0]
+        head_node_ip = self.gcs_address.rsplit(":", 1)[0]  # won't work outside IPv6
 
         self.autoscaler = None
         if log_dir:

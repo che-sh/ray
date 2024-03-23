@@ -2,6 +2,7 @@
 The test file for all standalone tests that doesn't
 requires a shared Serve instance.
 """
+
 import logging
 import os
 import random
@@ -15,6 +16,8 @@ import pytest
 import ray
 from ray import serve
 from ray._common.test_utils import wait_for_condition
+from ray._private import net
+from ray._private.services import new_port
 from ray._private.test_utils import (
     run_string_as_driver,
 )
@@ -74,9 +77,9 @@ def lower_slow_startup_threshold_and_reset():
     if original_slow_startup_warning_s is not None:
         os.environ["SERVE_SLOW_STARTUP_WARNING_S"] = original_slow_startup_warning_s
     if original_slow_startup_warning_period_s is not None:
-        os.environ[
-            "SERVE_SLOW_STARTUP_WARNING_PERIOD_S"
-        ] = original_slow_startup_warning_period_s
+        os.environ["SERVE_SLOW_STARTUP_WARNING_PERIOD_S"] = (
+            original_slow_startup_warning_period_s
+        )
 
 
 def test_shutdown(ray_shutdown):
@@ -393,7 +396,7 @@ def test_connect(ray_shutdown):
 
 
 def test_set_socket_reuse_port():
-    sock = socket.socket()
+    sock = net._get_socket_dualstack_fallback_single_stack_laddr()
     if hasattr(socket, "SO_REUSEPORT"):
         # If the flag exists, we should be able to to use it
         assert set_socket_reuse_port(sock)
@@ -407,7 +410,7 @@ def test_set_socket_reuse_port():
 
 
 def _reuse_port_is_available():
-    sock = socket.socket()
+    sock = net._get_socket_dualstack_fallback_single_stack_laddr()
     return set_socket_reuse_port(sock)
 
 
@@ -587,7 +590,7 @@ def test_no_http(ray_shutdown):
 
     address = ray.init(num_cpus=8)["address"]
     for i, option in enumerate(options):
-        print(f"[{i+1}/{len(options)}] Running with {option}")
+        print(f"[{i + 1}/{len(options)}] Running with {option}")
         serve.start(**option)
 
         # Only controller actor should exist

@@ -8,6 +8,8 @@ import sys
 import threading
 import time
 
+from ray._private import net
+
 _logger = logging.getLogger("ray.util.spark.utils")
 
 
@@ -96,10 +98,9 @@ def exec_cmd(
 
 
 def is_port_in_use(host, port):
-    import socket
     from contextlib import closing
 
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+    with closing(net._get_sock_stream_from_host(host)) as sock:
         return sock.connect_ex((host, port)) == 0
 
 
@@ -491,9 +492,7 @@ def get_avail_mem_per_ray_worker_node(
         inferred_ray_worker_node_object_store_bytes,
         err,
         warning_msg,
-    ) = (
-        spark.sparkContext.parallelize([1], 1).map(mapper).collect()[0]
-    )
+    ) = spark.sparkContext.parallelize([1], 1).map(mapper).collect()[0]
 
     if err is not None:
         raise RuntimeError(

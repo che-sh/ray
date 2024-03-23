@@ -35,6 +35,8 @@ from ray._private.ray_constants import (
     DEBUG_AUTOSCALING_ERROR,
     DEBUG_AUTOSCALING_STATUS_LEGACY,
 )
+from ray._private import net
+from ray._private.utils import get_or_create_event_loop
 from ray._private.test_utils import (
     fetch_prometheus_metrics,
     format_web_url,
@@ -331,7 +333,7 @@ def test_agent_report_unexpected_raylet_death_large_file(
 )
 def test_dashboard_address_local(ray_start_with_dashboard):
     webui_url = ray_start_with_dashboard["webui_url"]
-    webui_ip = parse_address(webui_url)[0]
+    webui_ip = net._parse_ip_port(webui_url)[0]
     assert not ipaddress.ip_address(webui_ip).is_unspecified
     assert webui_ip == "127.0.0.1"
 
@@ -350,7 +352,7 @@ def test_dashboard_address_local(ray_start_with_dashboard):
 )
 def test_dashboard_address_global(ray_start_with_dashboard):
     webui_url = ray_start_with_dashboard["webui_url"]
-    webui_ip = parse_address(webui_url)[0]
+    webui_ip = net._parse_ip_port(webui_url)[0]
     assert not ipaddress.ip_address(webui_ip).is_unspecified
     assert webui_ip == ray_start_with_dashboard["node_ip_address"]
 
@@ -751,7 +753,6 @@ def test_get_cluster_status(ray_start_with_dashboard):
     indirect=True,
 )
 def test_get_nodes_summary(call_ray_start):
-
     # The sleep is needed since it seems a previous shutdown could be not yet
     # done when the next test starts. This prevents a previous cluster to be
     # connected the current test session.
@@ -916,7 +917,7 @@ def test_dashboard_port_conflict(ray_start_with_dashboard):
     address_info = ray_start_with_dashboard
     gcs_client = make_gcs_client(address_info)
     ray.experimental.internal_kv._initialize_internal_kv(gcs_client)
-    host, port = parse_address(address_info["webui_url"])
+    host, port = net._parse_ip_port(address_info["webui_url"])
     temp_dir = "/tmp/ray"
     session_dir = "/tmp/ray/session_latest"
     log_dir = "/tmp/ray/session_latest/logs"
@@ -949,7 +950,7 @@ def test_dashboard_port_conflict(ray_start_with_dashboard):
                 namespace=ray_constants.KV_NAMESPACE_DASHBOARD,
             )
             if dashboard_url:
-                new_port = int(dashboard_url.split(b":")[-1])
+                new_port = int(net._parse_ip_port(dashboard_url)[-1])
                 assert new_port > int(port)
                 break
         except AssertionError as e:
@@ -1079,7 +1080,7 @@ def test_agent_port_conflict(shutdown_only):
     ray.shutdown()
 
     # ocuppy the port with a socket.
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s = net._get_sock_stream_from_host("localhost")
 
     wait_for_condition(
         lambda: s.connect_ex(

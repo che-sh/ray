@@ -29,6 +29,8 @@ from ray.core.generated.common_pb2 import Language
 
 # Import psutil after ray so the packaged version is used.
 import psutil
+from ray._private import net
+from ray._private.ray_constants import RAY_NODE_IP_FILENAME
 
 resource = None
 if sys.platform != "win32":
@@ -583,17 +585,16 @@ def extract_ip_port(bootstrap_address: str):
     ip_port = parse_address(bootstrap_address)
     if ip_port is None:
         raise ValueError(
-            f"Malformed address {bootstrap_address}. " f"Expected '<host>:<port>'."
+            f"Malformed address {bootstrap_address}. Expected '<host>:<port>'."
         )
-    ip, port = ip_port
+    ip, port = net._parse_ip_port(bootstrap_address)
     try:
         port = int(port)
     except ValueError:
         raise ValueError(f"Malformed address port {port}. Must be an integer.")
     if port < 1024 or port > 65535:
         raise ValueError(
-            f"Invalid address port {port}. Must be between 1024 "
-            "and 65535 (inclusive)."
+            f"Invalid address port {port}. Must be between 1024 and 65535 (inclusive)."
         )
     return ip, port
 
@@ -610,8 +611,14 @@ def resolve_ip_for_localhost(host: str):
             reachable IP.
     """
     if not host:
-        raise ValueError(f"Malformed host: {host}")
-    if host == "127.0.0.1" or host == "::1" or host == "localhost":
+        raise ValueError(f"Malformed address: {host}")
+    if host == "::1":
+        # edge-case of localhost IPv6 loopback not handled by
+        # net._parse_ip_port()
+        address_parts = [host]
+    else:
+        address_parts = net._parse_ip_port(host)
+    if address_parts[0] in ["127.0.0.1", "::1", "localhost"]:
         # Make sure localhost isn't resolved to the loopback ip
         return get_node_ip_address()
     else:
@@ -628,8 +635,8 @@ def node_ip_address_from_perspective(address: str):
     Returns:
         The IP address by which the local node can be reached from the address.
     """
-    ip_address, port = parse_address(address)
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    ip_address, port = net._parse_ip_port(address)
+    s = net._get_sock_dgram_from_host(ip_address)
     try:
         # This command will raise an exception if there is no internet
         # connection.
@@ -642,7 +649,9 @@ def node_ip_address_from_perspective(address: str):
             try:
                 # try get node ip address from host name
                 host_name = socket.getfqdn(socket.gethostname())
-                node_ip_address = socket.gethostbyname(host_name)
+                node_ip_address = net._get_addrinfo_from_sock_kind(
+                    host_name, socket.SOCK_DGRAM
+                )[0][1]
             except Exception:
                 pass
     finally:
@@ -1003,8 +1012,7 @@ def start_ray_process(
         total_chrs = sum([len(x) for x in command])
         if total_chrs > 31766:
             raise ValueError(
-                f"command is limited to a total of 31767 characters, "
-                f"got {total_chrs}"
+                f"command is limited to a total of 31767 characters, got {total_chrs}"
             )
 
     process = ConsolePopen(
@@ -1225,7 +1233,7 @@ def start_api_server(
             port = ray_constants.DEFAULT_DASHBOARD_PORT
         else:
             port_retries = 0
-            port_test_socket = socket.socket()
+            port_test_socket = net._get_socket_dualstack_fallback_single_stack_laddr()
             port_test_socket.setsockopt(
                 socket.SOL_SOCKET,
                 socket.SO_REUSEADDR,
@@ -1433,9 +1441,8 @@ def start_api_server(
 def get_address(redis_address):
     parts = redis_address.split("://", 1)
     enable_redis_ssl = False
-    if len(parts) == 1:
-        redis_ip_address, redis_port = parse_address(parts[0])
-    else:
+    redis_ip_address, redis_port = net._parse_ip_port(redis_address)
+    if len(parts) > 1:
         # rediss for SSL
         if len(parts) != 2 or parts[0] not in ("redis", "rediss"):
             raise ValueError(
@@ -1443,7 +1450,6 @@ def get_address(redis_address):
                 "Expected format is ip:port or redis://ip:port, "
                 "or rediss://ip:port for SSL."
             )
-        redis_ip_address, redis_port = parse_address(parts[1])
         if parts[0] == "rediss":
             enable_redis_ssl = True
     return redis_ip_address, redis_port, enable_redis_ssl

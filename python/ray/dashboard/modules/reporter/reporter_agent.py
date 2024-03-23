@@ -72,6 +72,17 @@ from ray.exceptions import (
 )
 
 import psutil
+import ray.dashboard.modules.reporter.reporter_consts as reporter_consts
+import ray.dashboard.utils as dashboard_utils
+from opencensus.stats import stats as stats_module
+import ray._private.prometheus_exporter as prometheus_exporter
+from prometheus_client.core import REGISTRY
+from ray._private import net
+from ray._private.metrics_agent import Gauge, MetricsAgent, Record
+from ray._private.ray_constants import DEBUG_AUTOSCALING_STATUS
+from ray.core.generated import reporter_pb2, reporter_pb2_grpc
+from ray.dashboard import k8s_utils
+from ray._raylet import WorkerID
 
 logger = logging.getLogger(__name__)
 
@@ -424,7 +435,9 @@ class ReporterAgent(
         self._gcs_client = dashboard_agent.gcs_client
         self._ip = dashboard_agent.ip
         self._log_dir = dashboard_agent.log_dir
-        self._is_head_node = self._ip == parse_address(dashboard_agent.gcs_address)[0]
+        self._is_head_node = (
+            self._ip == net._parse_ip_port(dashboard_agent.gcs_address)[0]
+        )
         self._hostname = socket.gethostname()
         # (pid, created_time) -> psutil.Process
         self._workers = {}
@@ -472,9 +485,7 @@ class ReporterAgent(
                 # proxy_exporter_collector is None
                 # if Prometheus server is not started.
                 REGISTRY.register(self._metrics_agent.proxy_exporter_collector)
-        self._key = (
-            f"{reporter_consts.REPORTER_PREFIX}" f"{self._dashboard_agent.node_id}"
-        )
+        self._key = f"{reporter_consts.REPORTER_PREFIX}{self._dashboard_agent.node_id}"
 
         self._executor = ThreadPoolExecutor(
             max_workers=RAY_DASHBOARD_REPORTER_AGENT_TPE_MAX_WORKERS,
@@ -696,7 +707,6 @@ class ReporterAgent(
 
     @staticmethod
     def _get_tpu_usage() -> List[TpuUtilizationInfo]:
-
         global enable_tpu_usage_check
         if not enable_tpu_usage_check:
             return []

@@ -20,6 +20,10 @@ from ray import ray_constants
 from ray._common.network_utils import build_address, parse_address
 from ray._common.usage.usage_lib import TagKey, record_extra_usage_tag
 from ray._common.utils import get_or_create_event_loop
+from ray._private.usage.usage_lib import TagKey, record_extra_usage_tag
+from ray._private import net
+from ray._private.utils import get_or_create_event_loop
+from ray._raylet import GcsClient
 from ray.dashboard.dashboard_metrics import DashboardPrometheusMetrics
 from ray.dashboard.head import DashboardHeadModule
 
@@ -90,7 +94,7 @@ class HttpServerDashboardHead:
         self.http_host = http_host
         self.http_port = http_port
         self.http_port_retries = http_port_retries
-        self.head_node_ip = parse_address(gcs_address)[0]
+        self.head_node_ip = net._parse_ip_port(gcs_address)[0]
         self.metrics = metrics
         self._session_name = session_name
 
