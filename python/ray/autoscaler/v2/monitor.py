@@ -20,6 +20,8 @@ from ray._common.ray_constants import (
 )
 from ray._common.usage.usage_lib import record_extra_usage_tag
 from ray._private import logging_utils
+import ray._private.utils
+from ray._private import net
 from ray._private.event.event_logger import get_event_logger
 from ray._private.ray_logging import setup_component_logger
 from ray._private.worker import SCRIPT_MODE
