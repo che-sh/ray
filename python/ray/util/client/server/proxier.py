@@ -201,7 +201,7 @@ class ProxyManager:
             port = self._get_unused_port()
             local_ip = net._get_addrinfo_from_sock_kind_ipv4_fallback_ipv6(
                 "localhost", socket.SOCK_STREAM
-            )
+            )[0][1]
             server = SpecificServer(
                 port=port,
                 process_handle_future=futures.Future(),
