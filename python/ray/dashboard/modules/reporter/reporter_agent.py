@@ -31,6 +31,7 @@ from ray._common.utils import (
     get_user_temp_dir,
 )
 from ray._private import utils
+from ray._private import net, utils
 from ray._private.metrics_agent import Gauge, MetricsAgent, Record
 from ray._private.ray_constants import (
     DEBUG_AUTOSCALING_STATUS,

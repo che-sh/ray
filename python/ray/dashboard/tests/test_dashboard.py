@@ -31,6 +31,7 @@ from ray._common.ray_constants import (
 )
 from ray._common.test_utils import wait_for_condition
 from ray._common.utils import get_or_create_event_loop
+from ray._private import net, ray_constants
 from ray._private.ray_constants import (
     DEBUG_AUTOSCALING_ERROR,
     DEBUG_AUTOSCALING_STATUS_LEGACY,
@@ -46,6 +47,7 @@ from ray._private.test_utils import (
     wait_until_server_available,
     wait_until_succeeded_without_exception,
 )
+from ray._private.utils import get_or_create_event_loop
 from ray.core.generated import common_pb2
 from ray.dashboard import dashboard
 from ray.dashboard.head import DashboardHead
