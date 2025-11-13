@@ -531,6 +531,9 @@ def canonicalize_bootstrap_address(
 
     parsed = parse_address(addr)
     if parsed is None:
+        parsed = net._parse_ip_port(addr)
+
+    if parsed is None:
         raise ValueError(f"Invalid address format: {addr}")
     host, port = parsed
 

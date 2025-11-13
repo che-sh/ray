@@ -411,7 +411,7 @@ class Node:
         """Validates the address is in the ip:port format"""
         parts = parse_address(ip_port)
         if parts is None:
-        _, port = net._parse_ip_port(ip_port)
+            _, port = net._parse_ip_port(ip_port)
         if port == ip_port:
             raise ValueError(f"Port is not specified for address {ip_port}")
         try:
@@ -1039,9 +1039,9 @@ class Node:
         This must be the first process spawned and should only be called when
         ray processes should be cleaned up if this process dies.
         """
-        assert (
-            not self.kernel_fate_share
-        ), "a reaper should not be used with kernel fate-sharing"
+        assert not self.kernel_fate_share, (
+            "a reaper should not be used with kernel fate-sharing"
+        )
         process_info = ray._private.services.start_reaper(fate_share=False)
         assert ray_constants.PROCESS_TYPE_REAPER not in self.all_processes
         if process_info is not None:
@@ -1348,7 +1348,7 @@ class Node:
     def start_head_processes(self):
         """Start head processes on the node."""
         logger.debug(
-            f"Process STDOUT and STDERR is being " f"redirected to {self._logs_dir}."
+            f"Process STDOUT and STDERR is being redirected to {self._logs_dir}."
         )
         assert self._gcs_address is None
         assert self._gcs_client is None
@@ -1377,7 +1377,7 @@ class Node:
     def start_ray_processes(self):
         """Start all of the processes on the node."""
         logger.debug(
-            f"Process STDOUT and STDERR is being " f"redirected to {self._logs_dir}."
+            f"Process STDOUT and STDERR is being redirected to {self._logs_dir}."
         )
 
         if not self.head:
@@ -1770,15 +1770,15 @@ class Node:
         # We need to set both ray param's system config and self._config
         # because they could've been diverged at this point.
         deserialized_config = json.loads(object_spilling_config)
-        self._ray_params._system_config[
-            "object_spilling_config"
-        ] = object_spilling_config
+        self._ray_params._system_config["object_spilling_config"] = (
+            object_spilling_config
+        )
         self._config["object_spilling_config"] = object_spilling_config
 
         is_external_storage_type_fs = deserialized_config["type"] == "filesystem"
-        self._ray_params._system_config[
-            "is_external_storage_type_fs"
-        ] = is_external_storage_type_fs
+        self._ray_params._system_config["is_external_storage_type_fs"] = (
+            is_external_storage_type_fs
+        )
         self._config["is_external_storage_type_fs"] = is_external_storage_type_fs
 
         # Validate external storage usage.

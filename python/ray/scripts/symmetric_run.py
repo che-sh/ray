@@ -11,6 +11,7 @@ import click
 import ray
 from ray._private.ray_constants import env_integer
 from ray._raylet import GcsClient
+from ray._private import net
 
 import psutil
 
@@ -158,6 +159,10 @@ def symmetric_run(address, min_nodes, ray_args_and_entrypoint):
 
     # 1. Parse address and check if we are on the head node.
     gcs_host_port = ray._common.network_utils.parse_address(address)
+
+    if gcs_host_port is None:
+        gcs_host_port = net._parse_ip_port(address)
+
     if gcs_host_port is None:
         raise click.ClickException(
             f"Invalid address format: {address}, should be `host:port`"
