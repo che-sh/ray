@@ -3,7 +3,6 @@ import importlib
 import logging
 import os
 import pickle
-import socket
 import sys
 import time
 
@@ -13,6 +12,9 @@ import pytest
 import ray
 import ray._private.ray_constants
 import ray._private.utils
+import ray.cluster_utils
+import ray.util.accelerators
+from ray._private import net
 from ray._private.test_utils import check_call_ray, wait_for_num_actors
 from ray.util.state import list_actors
 
@@ -22,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 
 def test_global_state_api(shutdown_only):
-
     ray.init(
         num_cpus=5, num_gpus=3, resources={"CustomResource": 1}, include_dashboard=True
     )
@@ -299,7 +300,7 @@ def test_raylet_is_robust_to_random_messages(ray_start_regular):
     assert node_manager_address
     assert node_manager_port
     # Try to bring down the node manager:
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s = net._get_sock_stream_from_host(node_manager_address)
     s.connect((node_manager_address, node_manager_port))
     s.send(1000 * b"asdf")
 

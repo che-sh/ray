@@ -472,9 +472,7 @@ class ReporterAgent(
                 # proxy_exporter_collector is None
                 # if Prometheus server is not started.
                 REGISTRY.register(self._metrics_agent.proxy_exporter_collector)
-        self._key = (
-            f"{reporter_consts.REPORTER_PREFIX}" f"{self._dashboard_agent.node_id}"
-        )
+        self._key = f"{reporter_consts.REPORTER_PREFIX}{self._dashboard_agent.node_id}"
 
         self._executor = ThreadPoolExecutor(
             max_workers=RAY_DASHBOARD_REPORTER_AGENT_TPE_MAX_WORKERS,
@@ -696,7 +694,6 @@ class ReporterAgent(
 
     @staticmethod
     def _get_tpu_usage() -> List[TpuUtilizationInfo]:
-
         global enable_tpu_usage_check
         if not enable_tpu_usage_check:
             return []

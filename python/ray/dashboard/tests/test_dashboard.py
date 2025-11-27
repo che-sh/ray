@@ -5,7 +5,6 @@ import ipaddress
 import json
 import logging
 import os
-import socket
 import subprocess
 import sys
 import time
@@ -751,7 +750,6 @@ def test_get_cluster_status(ray_start_with_dashboard):
     indirect=True,
 )
 def test_get_nodes_summary(call_ray_start):
-
     # The sleep is needed since it seems a previous shutdown could be not yet
     # done when the next test starts. This prevents a previous cluster to be
     # connected the current test session.
@@ -949,7 +947,7 @@ def test_dashboard_port_conflict(ray_start_with_dashboard):
                 namespace=ray_constants.KV_NAMESPACE_DASHBOARD,
             )
             if dashboard_url:
-                new_port = int(dashboard_url.split(b":")[-1])
+                new_port = int(net._parse_ip_port(dashboard_url)[-1])
                 assert new_port > int(port)
                 break
         except AssertionError as e:
@@ -1079,7 +1077,7 @@ def test_agent_port_conflict(shutdown_only):
     ray.shutdown()
 
     # ocuppy the port with a socket.
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s = net._get_sock_stream_from_host("localhost")
 
     wait_for_condition(
         lambda: s.connect_ex(

@@ -621,13 +621,12 @@ def async_loop_forever(interval_seconds, cancellable=False):
                 except asyncio.CancelledError as ex:
                     if cancellable:
                         logger.info(
-                            f"An async loop forever coroutine " f"is cancelled {coro}."
+                            f"An async loop forever coroutine is cancelled {coro}."
                         )
                         raise ex
                     else:
                         logger.exception(
-                            f"Can not cancel the async loop "
-                            f"forever coroutine {coro}."
+                            f"Can not cancel the async loop forever coroutine {coro}."
                         )
                 except Exception:
                     logger.exception(f"Error looping coroutine {coro}.")

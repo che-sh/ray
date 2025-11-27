@@ -17,6 +17,7 @@ WARNING: IF YOU MOCK AWS, DON'T FORGET THE AWS_CREDENTIALS FIXTURE.
 Note: config cache does not work with AWS mocks since the AWS resource ids are
       randomized each time.
 """
+
 import glob
 import json
 import multiprocessing as mp
@@ -52,7 +53,6 @@ from ray._common.test_utils import wait_for_condition
 from ray.cluster_utils import cluster_not_supported
 from ray.util.check_open_ports import check_open_ports
 from ray.util.state import list_nodes
-
 import psutil
 
 boto3_list = [
@@ -924,7 +924,7 @@ def test_ray_status(shutdown_only, monkeypatch, enable_v2):
         if not result.exception and "memory" in result.output:
             return True
         raise RuntimeError(
-            f"result.exception={result.exception} " f"result.output={result.output}"
+            f"result.exception={result.exception} result.output={result.output}"
         )
 
     wait_for_condition(output_ready)
@@ -972,7 +972,7 @@ def test_ray_status_multinode(ray_start_cluster, enable_v2):
         if not result.exception and "memory" in result.output:
             return True
         raise RuntimeError(
-            f"result.exception={result.exception} " f"result.output={result.output}"
+            f"result.exception={result.exception} result.output={result.output}"
         )
 
     wait_for_condition(output_ready)
@@ -1220,9 +1220,10 @@ def test_ray_drain_node(monkeypatch):
             ray.get_runtime_context().get_node_id(), 2, "spot preemption", 0
         )
 
-    with patch("time.time_ns", return_value=1000000000), patch(
-        "ray._raylet.GcsClient"
-    ) as MockGcsClient:
+    with (
+        patch("time.time_ns", return_value=1000000000),
+        patch("ray._raylet.GcsClient") as MockGcsClient,
+    ):
         mock_gcs_client = MockGcsClient.return_value
         mock_gcs_client.internal_kv_get.return_value = (
             f'{{"ray_version": "{ray.__version__}"}}'.encode()

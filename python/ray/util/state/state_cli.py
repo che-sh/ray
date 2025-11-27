@@ -1202,8 +1202,7 @@ def log_worker(
     required=True,
     type=str,
     help=(
-        "Retrieves the logs from a submission job with submission id,"
-        "i.e. raysubmit_XXX"
+        "Retrieves the logs from a submission job with submission id,i.e. raysubmit_XXX"
     ),
 )
 @address_option

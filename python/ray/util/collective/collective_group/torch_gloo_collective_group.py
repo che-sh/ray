@@ -19,6 +19,7 @@ from ray.util.collective.types import (
     ReduceScatterOptions,
     SendOptions,
 )
+from ray._common.network_utils import parse_address
 
 if TYPE_CHECKING:
     import torch
@@ -60,7 +61,7 @@ class TorchGLOOGroup(BaseGroup):
                     f"Missing rendezvous metadata for group `{group_name}` under key `{metadata_key}`."
                 )
             metadata = metadata.decode()
-            master_addr, master_port = metadata.split(":")
+            master_addr, master_port = parse_address(metadata)
             os.environ["MASTER_ADDR"] = master_addr
             os.environ["MASTER_PORT"] = master_port
 

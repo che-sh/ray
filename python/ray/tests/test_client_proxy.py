@@ -397,13 +397,13 @@ def test_proxy_manager_internal_kv(shutdown_only, with_specific_server, monkeypa
             # exception if they're called. This verifies that we are not
             # making any calls in the proxier if there is a SpecificServer
             # started up.
-            with patch(
-                "ray.experimental.internal_kv._internal_kv_put"
-            ) as mock_put, patch(
-                "ray.experimental.internal_kv._internal_kv_get"
-            ) as mock_get, patch(
-                "ray.experimental.internal_kv._internal_kv_initialized"
-            ) as mock_initialized:
+            with (
+                patch("ray.experimental.internal_kv._internal_kv_put") as mock_put,
+                patch("ray.experimental.internal_kv._internal_kv_get") as mock_get,
+                patch(
+                    "ray.experimental.internal_kv._internal_kv_initialized"
+                ) as mock_initialized,
+            ):
                 mock_put.side_effect = Exception("This shouldn't be called!")
                 mock_get.side_effect = Exception("This shouldn't be called!")
                 mock_initialized.side_effect = Exception("This shouldn't be called!")

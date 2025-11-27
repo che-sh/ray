@@ -29,6 +29,7 @@ from ray.core.generated.common_pb2 import Language
 
 # Import psutil after ray so the packaged version is used.
 import psutil
+from ray._private import net
 
 resource = None
 if sys.platform != "win32":
@@ -583,7 +584,7 @@ def extract_ip_port(bootstrap_address: str):
     ip_port = parse_address(bootstrap_address)
     if ip_port is None:
         raise ValueError(
-            f"Malformed address {bootstrap_address}. " f"Expected '<host>:<port>'."
+            f"Malformed address {bootstrap_address}. Expected '<host>:<port>'."
         )
     ip, port = ip_port
     try:
@@ -592,8 +593,7 @@ def extract_ip_port(bootstrap_address: str):
         raise ValueError(f"Malformed address port {port}. Must be an integer.")
     if port < 1024 or port > 65535:
         raise ValueError(
-            f"Invalid address port {port}. Must be between 1024 "
-            "and 65535 (inclusive)."
+            f"Invalid address port {port}. Must be between 1024 and 65535 (inclusive)."
         )
     return ip, port
 
@@ -629,7 +629,7 @@ def node_ip_address_from_perspective(address: str):
         The IP address by which the local node can be reached from the address.
     """
     ip_address, port = parse_address(address)
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s = net._get_sock_dgram_from_host(ip_address)
     try:
         # This command will raise an exception if there is no internet
         # connection.
@@ -642,7 +642,9 @@ def node_ip_address_from_perspective(address: str):
             try:
                 # try get node ip address from host name
                 host_name = socket.getfqdn(socket.gethostname())
-                node_ip_address = socket.gethostbyname(host_name)
+                node_ip_address = net._get_addrinfo_from_sock_kind_ipv4_fallback_ipv6(
+                    host_name, socket.SOCK_DGRAM
+                )[0][1]
             except Exception:
                 pass
     finally:
@@ -1003,8 +1005,7 @@ def start_ray_process(
         total_chrs = sum([len(x) for x in command])
         if total_chrs > 31766:
             raise ValueError(
-                f"command is limited to a total of 31767 characters, "
-                f"got {total_chrs}"
+                f"command is limited to a total of 31767 characters, got {total_chrs}"
             )
 
     process = ConsolePopen(
@@ -1225,7 +1226,7 @@ def start_api_server(
             port = ray_constants.DEFAULT_DASHBOARD_PORT
         else:
             port_retries = 0
-            port_test_socket = socket.socket()
+            port_test_socket = net._get_sock_stream_from_host(host)
             port_test_socket.setsockopt(
                 socket.SOL_SOCKET,
                 socket.SO_REUSEADDR,

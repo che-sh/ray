@@ -3,6 +3,7 @@ import signal
 import socket
 import subprocess as sp
 import time
+from ray._private import net
 
 # extracted from aioboto3
 #    https://github.com/terrycain/aioboto3/blob/16a1a1085191ebe6d40ee45d9588b2173738af0c/tests/mock_server.py
@@ -20,7 +21,7 @@ _proxy_bypass = {
 def _is_port_available(host, port):
     """Check if a port is available for use."""
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        with net._get_sock_stream_from_host(host) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((host, port))
             return True
@@ -43,14 +44,14 @@ def _find_available_port(host, preferred_port, max_attempts=10):
 
     # If all else fails, let the OS pick a port
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        with net._get_sock_stream_from_host(host) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((host, 0))  # Let OS pick port
             _, port = s.getsockname()
             return port
     except OSError as e:
         raise RuntimeError(
-            f"Could not find any available port starting from " f"{preferred_port}: {e}"
+            f"Could not find any available port starting from {preferred_port}: {e}"
         ) from e
 
 

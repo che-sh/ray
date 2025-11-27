@@ -24,6 +24,7 @@ import ray
 import ray._private.ray_constants as ray_constants
 from ray._common.network_utils import build_address
 from ray._common.test_utils import wait_for_condition
+from ray._private import net
 from ray._private.conftest_utils import set_override_dashboard_url  # noqa: F401
 from ray._private.runtime_env import virtualenv_utils
 from ray._private.test_utils import (
@@ -259,7 +260,7 @@ def _find_available_ports(start: int, end: int, *, num: int = 1) -> List[int]:
     ports = []
     for _ in range(num):
         random_port = 0
-        with socket.socket() as s:
+        with net._get_socket_dualstack_fallback_single_stack_laddr() as s:
             s.bind(("", 0))
             random_port = s.getsockname()[1]
         if random_port >= start and random_port <= end and random_port not in ports:
@@ -270,7 +271,7 @@ def _find_available_ports(start: int, end: int, *, num: int = 1) -> List[int]:
             if port in ports:
                 continue
             try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                with net._get_socket_dualstack_fallback_single_stack_laddr() as s:
                     s.bind(("", port))
                 ports.append(port)
                 break
@@ -361,7 +362,7 @@ def start_redis(db_dir):
                     for process in processes:
                         print(
                             f"Another process({process.pid}) with command"
-                            f"\"{' '.join(process.args)}\" is listening on the port"
+                            f'"{" ".join(process.args)}" is listening on the port'
                             f"{port}"
                         )
 
@@ -391,7 +392,6 @@ def start_redis(db_dir):
             continue
 
         if redis_replicas() > 1:
-
             redis_cli = get_redis_cli(str(leader_port), enable_tls)
             while redis_cli.cluster("info")["cluster_state"] != "ok":
                 pass
@@ -776,8 +776,7 @@ def call_ray_start(request):
 @contextmanager
 def call_ray_start_context(request):
     default_cmd = (
-        "ray start --head --num-cpus=1 --min-worker-port=0 "
-        "--max-worker-port=0 --port 0"
+        "ray start --head --num-cpus=1 --min-worker-port=0 --max-worker-port=0 --port 0"
     )
     parameter = getattr(request, "param", default_cmd)
     env = None
@@ -1125,9 +1124,9 @@ def _ray_start_chaos_cluster(request):
         killed = ray.get(node_killer.get_total_killed.remote())
         assert len(killed) > 0
         died = {node["NodeID"] for node in ray.nodes() if not node["Alive"]}
-        assert died.issubset(
-            killed
-        ), f"Raylets {died - killed} that we did not kill crashed"
+        assert died.issubset(killed), (
+            f"Raylets {died - killed} that we did not kill crashed"
+        )
 
     ray.shutdown()
     cluster.shutdown()
@@ -1199,7 +1198,7 @@ def set_runtime_env_retry_times(request):
 def listen_port(request):
     port = getattr(request, "param", 0)
     try:
-        sock = socket.socket()
+        sock = net._get_sock_stream_from_host("localhost")
         if hasattr(socket, "SO_REUSEPORT"):
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 0)
 
@@ -1207,7 +1206,7 @@ def listen_port(request):
         MAX_RETRY = 10
         for i in range(MAX_RETRY):
             try:
-                sock.bind(("127.0.0.1", port))
+                sock.bind(("localhost", port))
                 break
             except OSError as e:
                 if i == MAX_RETRY - 1:

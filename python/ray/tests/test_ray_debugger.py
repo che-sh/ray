@@ -203,9 +203,7 @@ def f():
 f.remote()
 # Give the remote function long enough to actually run.
 time.sleep(5)
-""".format(
-        address
-    )
+""".format(address)
 
     assert not len(
         ray.experimental.internal_kv._internal_kv_list(

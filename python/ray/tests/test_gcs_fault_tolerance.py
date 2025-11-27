@@ -1122,7 +1122,6 @@ def test_gcs_server_restart_destroys_out_of_scope_actors(
         assert ray.get(detached2.getpid.remote()) == detached_pid
         assert ray.get(child2.getpid.remote()) == child_pid
     elif case["expect_alive"] == "none":
-
         with pytest.raises(ValueError):
             ray.get_actor("regular", namespace="ns")
 

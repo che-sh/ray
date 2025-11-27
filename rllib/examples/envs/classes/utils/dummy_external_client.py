@@ -17,6 +17,7 @@ from ray.rllib.env.external.rllink import (
 from ray.rllib.env.single_agent_episode import SingleAgentEpisode
 from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.utils.numpy import softmax
+from ray._private import net
 
 torch, _ = try_import_torch()
 
@@ -32,7 +33,7 @@ def _dummy_external_client(port: int = 5556):
     while True:
         try:
             print(f"Trying to connect to localhost:{port} ...")
-            sock_ = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock_ = net._get_sock_stream_from_host("localhost")
             sock_.connect(("localhost", port))
             break
         except ConnectionRefusedError:
@@ -72,9 +73,7 @@ def _dummy_external_client(port: int = 5556):
             batch={
                 Columns.OBS: torch.tensor(np.array([obs], np.float32)),
             }
-        )[Columns.ACTION_DIST_INPUTS][
-            0
-        ].numpy()  # [0]=batch size 1
+        )[Columns.ACTION_DIST_INPUTS][0].numpy()  # [0]=batch size 1
 
         # Stochastic sample.
         action_probs = softmax(logits)

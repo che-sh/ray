@@ -6,7 +6,6 @@ import logging
 import os
 import pathlib
 import random
-import socket
 import subprocess
 import sys
 import tempfile
@@ -34,6 +33,7 @@ from ray._common.network_utils import build_address, parse_address
 from ray._common.test_utils import wait_for_condition
 from ray._common.utils import get_or_create_event_loop
 from ray._private import (
+    net,
     ray_constants,
 )
 from ray._private.internal_api import memory_summary
@@ -790,7 +790,7 @@ def wait_until_server_available(address, timeout_ms=5000, retry_interval_ms=100)
     time_elapsed = 0
     start = time.time()
     while time_elapsed <= timeout_ms:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s = net._get_sock_stream_from_host(ip)
         s.settimeout(1)
         try:
             s.connect((ip, port))
@@ -1280,7 +1280,7 @@ def monitor_memory_usage(
 
                 if used_gb > total_gb * self.warning_threshold:
                     logging.warning(
-                        "The memory usage is high: " f"{used_gb / total_gb * 100}%"
+                        f"The memory usage is high: {used_gb / total_gb * 100}%"
                     )
                 if now - self._last_print_time > self.print_interval_s:
                     logging.info(f"Memory usage: {used_gb} / {total_gb}")
@@ -1826,8 +1826,8 @@ def job_hook(**kwargs):
     sys.exit(0)
 
 
-def find_free_port() -> int:
-    sock = socket.socket()
+def find_free_port():
+    sock = net._get_socket_dualstack_fallback_single_stack_laddr()
     sock.bind(("", 0))
     port = sock.getsockname()[1]
     sock.close()
@@ -1958,7 +1958,7 @@ def get_current_unused_port():
         A port number that is not currently in use. (Note that this port
         might become used by the time you try to bind to it.)
     """
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock = net._get_sock_stream_from_host("localhost")
 
     # Bind the socket to a local address with a random port number
     sock.bind(("localhost", 0))

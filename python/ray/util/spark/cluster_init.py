@@ -252,7 +252,7 @@ class RayClusterOnSpark:
             except Exception as e:
                 # swallow exception.
                 _logger.warning(
-                    "An Error occurred during shutdown of ray head node: " f"{repr(e)}"
+                    f"An Error occurred during shutdown of ray head node: {repr(e)}"
                 )
             self.is_shutdown = True
 
@@ -957,7 +957,11 @@ def _setup_ray_cluster_internal(
             total_mem_bytes,
         )
 
-    (num_cpus_spark_worker, num_gpus_spark_worker, spark_worker_mem_bytes,) = (
+    (
+        num_cpus_spark_worker,
+        num_gpus_spark_worker,
+        spark_worker_mem_bytes,
+    ) = (
         spark.sparkContext.parallelize([1], 1)
         .map(_get_spark_worker_resources)
         .collect()[0]

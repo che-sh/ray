@@ -34,6 +34,7 @@ from ray._private.utils import (
     try_to_symlink,
     validate_socket_filepath,
 )
+from ray._private import net
 from ray._raylet import GcsClient, get_session_key_from_storage
 
 import psutil
@@ -881,8 +882,7 @@ class Node:
     def _get_unused_port(self, allocated_ports=None):
         if allocated_ports is None:
             allocated_ports = set()
-
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s = net._get_socket_dualstack_fallback_single_stack_laddr()
         s.bind(("", 0))
         port = s.getsockname()[1]
 
@@ -895,7 +895,7 @@ class Node:
                 # This port is allocated for other usage already,
                 # so we shouldn't use it even if it's not in use right now.
                 continue
-            new_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            new_s = net._get_socket_dualstack_fallback_single_stack_laddr()
             try:
                 new_s.bind(("", new_port))
             except OSError:
@@ -1037,9 +1037,9 @@ class Node:
         This must be the first process spawned and should only be called when
         ray processes should be cleaned up if this process dies.
         """
-        assert (
-            not self.kernel_fate_share
-        ), "a reaper should not be used with kernel fate-sharing"
+        assert not self.kernel_fate_share, (
+            "a reaper should not be used with kernel fate-sharing"
+        )
         process_info = ray._private.services.start_reaper(fate_share=False)
         assert ray_constants.PROCESS_TYPE_REAPER not in self.all_processes
         if process_info is not None:
@@ -1346,7 +1346,7 @@ class Node:
     def start_head_processes(self):
         """Start head processes on the node."""
         logger.debug(
-            f"Process STDOUT and STDERR is being " f"redirected to {self._logs_dir}."
+            f"Process STDOUT and STDERR is being redirected to {self._logs_dir}."
         )
         assert self._gcs_address is None
         assert self._gcs_client is None
@@ -1375,7 +1375,7 @@ class Node:
     def start_ray_processes(self):
         """Start all of the processes on the node."""
         logger.debug(
-            f"Process STDOUT and STDERR is being " f"redirected to {self._logs_dir}."
+            f"Process STDOUT and STDERR is being redirected to {self._logs_dir}."
         )
 
         if not self.head:
@@ -1768,15 +1768,15 @@ class Node:
         # We need to set both ray param's system config and self._config
         # because they could've been diverged at this point.
         deserialized_config = json.loads(object_spilling_config)
-        self._ray_params._system_config[
-            "object_spilling_config"
-        ] = object_spilling_config
+        self._ray_params._system_config["object_spilling_config"] = (
+            object_spilling_config
+        )
         self._config["object_spilling_config"] = object_spilling_config
 
         is_external_storage_type_fs = deserialized_config["type"] == "filesystem"
-        self._ray_params._system_config[
-            "is_external_storage_type_fs"
-        ] = is_external_storage_type_fs
+        self._ray_params._system_config["is_external_storage_type_fs"] = (
+            is_external_storage_type_fs
+        )
         self._config["is_external_storage_type_fs"] = is_external_storage_type_fs
 
         # Validate external storage usage.

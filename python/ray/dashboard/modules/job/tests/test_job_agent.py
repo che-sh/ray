@@ -69,9 +69,9 @@ def get_node_ip_by_id(node_id: str) -> str:
 class JobAgentSubmissionBrowserClient(JobAgentSubmissionClient):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._session.headers[
-            "User-Agent"
-        ] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"  # noqa: E501
+        self._session.headers["User-Agent"] = (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"  # noqa: E501
+        )
 
 
 @pytest_asyncio.fixture
@@ -172,8 +172,7 @@ ray.get(f.remote())
                 yield {
                     "runtime_env": {"py_modules": [str(Path(tmp_dir) / "test_module")]},
                     "entrypoint": (
-                        "python -c 'import test_module;"
-                        "print(test_module.run_test())'"
+                        "python -c 'import test_module;print(test_module.run_test())'"
                     ),
                     "expected_logs": "Hello from test_module!\n",
                 }
@@ -529,9 +528,9 @@ async def test_job_log_in_multiple_node(
             for agent_port in job_agent_ports:
                 if f"--listen-port={agent_port}" in " ".join(node_info["cmdline"]):
                     break
-            assert f"--listen-port={agent_port}" in " ".join(
-                node_info["cmdline"]
-            ), f"port: {agent_port}"
+            assert f"--listen-port={agent_port}" in " ".join(node_info["cmdline"]), (
+                f"port: {agent_port}"
+            )
 
             # Finally, we got the whole agent address, and try to get the job log.
             ip = get_node_ip_by_id(node_id)
@@ -596,7 +595,7 @@ async def test_non_default_dashboard_agent_http_port(tmp_path):
     import subprocess
 
     dashboard_agent_port = get_current_unused_port()
-    cmd = "ray start --head " f"--dashboard-agent-listen-port {dashboard_agent_port}"
+    cmd = f"ray start --head --dashboard-agent-listen-port {dashboard_agent_port}"
     subprocess.check_output(cmd, shell=True)
 
     try:

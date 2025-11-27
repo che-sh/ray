@@ -83,9 +83,10 @@ def test_ray_init_valid_keyword_with_client(shutdown_only):
 
 
 def test_env_var_override():
-    with unittest.mock.patch.dict(
-        os.environ, {"RAY_NAMESPACE": "envName"}
-    ), ray_start_client_server() as given_connection:
+    with (
+        unittest.mock.patch.dict(os.environ, {"RAY_NAMESPACE": "envName"}),
+        ray_start_client_server() as given_connection,
+    ):
         given_connection.disconnect()
 
         with ray.init("ray://localhost:50051"):
@@ -94,9 +95,10 @@ def test_env_var_override():
 
 def test_env_var_no_override():
     # init() argument has precedence over environment variables
-    with unittest.mock.patch.dict(
-        os.environ, {"RAY_NAMESPACE": "envName"}
-    ), ray_start_client_server() as given_connection:
+    with (
+        unittest.mock.patch.dict(os.environ, {"RAY_NAMESPACE": "envName"}),
+        ray_start_client_server() as given_connection,
+    ):
         given_connection.disconnect()
 
         with ray.init("ray://localhost:50051", namespace="argumentName"):

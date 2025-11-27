@@ -30,6 +30,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from uvicorn.config import Config
 from uvicorn.lifespan.on import LifespanOn
 
+from ray._private import net
 from ray._common.pydantic_compat import IS_PYDANTIC_2
 from ray.exceptions import RayActorError, RayTaskError
 from ray.serve._private.common import RequestMetadata
@@ -498,9 +499,7 @@ def make_fastapi_class_based_view(fastapi_app, cls: Type) -> None:
         if (
             # TODO(edoakes): I don't think this check is complete because we need
             # to support v1 models in v2 (from pydantic.v1 import *).
-            not IS_PYDANTIC_2
-            and isinstance(route, APIRoute)
-            and route.response_model
+            not IS_PYDANTIC_2 and isinstance(route, APIRoute) and route.response_model
         ):
             route.secure_cloned_response_field.outer_type_ = (
                 route.response_field.outer_type_
@@ -698,7 +697,7 @@ async def start_asgi_http_server(
     """
     app = _apply_middlewares(app, http_options.middlewares)
 
-    sock = socket.socket()
+    sock = net._get_socket_dualstack_fallback_single_stack_laddr()
     if enable_so_reuseport:
         set_socket_reuse_port(sock)
 

@@ -5,6 +5,7 @@ import threading
 import time
 from typing import Collection, DefaultDict, List, Optional, Union
 
+from ray._private import net
 from ray.rllib.core import (
     COMPONENT_RL_MODULE,
     DEFAULT_AGENT_ID,
@@ -108,9 +109,9 @@ class EnvRunnerServerForExternalInference(EnvRunner, Checkpointable):
     @override(EnvRunner)
     def assert_healthy(self):
         """Checks that the server socket is open and listening."""
-        assert (
-            self.server_socket is not None
-        ), "Server socket is None (not connected, not listening)."
+        assert self.server_socket is not None, (
+            "Server socket is None (not connected, not listening)."
+        )
 
     @override(EnvRunner)
     def sample(self, **kwargs):
@@ -285,7 +286,7 @@ class EnvRunnerServerForExternalInference(EnvRunner, Checkpointable):
         time.sleep(sleep)
 
         # Start listening on the configured port.
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket = net._get_sock_stream_from_host(self.host)
         # Allow reuse of the address.
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind((self.host, self.port))
