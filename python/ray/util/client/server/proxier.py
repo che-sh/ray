@@ -19,6 +19,7 @@ import ray.core.generated.ray_client_pb2 as ray_client_pb2
 import ray.core.generated.ray_client_pb2_grpc as ray_client_pb2_grpc
 import ray.core.generated.runtime_env_agent_pb2 as runtime_env_agent_pb2
 from ray._common.network_utils import build_address, is_localhost
+from ray._private import net
 from ray._private.client_mode_hook import disable_client_hook
 from ray._private.parameter import RayParams
 from ray._private.runtime_env.context import RuntimeEnvContext
@@ -142,17 +143,42 @@ class ProxyManager:
         """
         with self.server_lock:
             num_ports = len(self._free_ports)
+            failed_ports = []
             for _ in range(num_ports):
                 port = self._free_ports.pop(0)
                 s = net._get_socket_dualstack_fallback_single_stack_laddr()
+                socket_family = "IPv6" if s.family == socket.AF_INET6 else "IPv4"
                 try:
-                    s.bind(("", port))
-                except OSError:
+                    # Use proper bind address for IPv6 sockets
+                    if s.family == socket.AF_INET6:
+                        bind_addr = ("::", port)  # IPv6 "any" address
+                    else:
+                        bind_addr = ("", port)  # IPv4 "any" address (or use "0.0.0.0")
+                    s.bind(bind_addr)
+                    logger.debug(
+                        f"Successfully allocated port {port} using {socket_family} socket"
+                    )
+                except OSError as e:
+                    logger.warning(
+                        f"Failed to bind {socket_family} socket to port {port}: "
+                        f"{e.errno} - {e.strerror}"
+                    )
+                    failed_ports.append((port, socket_family, e))
                     self._free_ports.append(port)
                     continue
                 finally:
                     s.close()
                 return port
+
+            # If we get here, all ports failed to bind
+            error_details = "\n".join(
+                f"  Port {port} ({family}): {e.strerror} (errno {e.errno})"
+                for port, family, e in failed_ports
+            )
+            logger.error(
+                f"Unable to allocate any port from {num_ports} available ports. "
+                f"All bind attempts failed:\n{error_details}"
+            )
         raise RuntimeError("Unable to succeed in selecting a random port.")
 
     @property
